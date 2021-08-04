@@ -369,22 +369,12 @@ process_bind_mounts() {
 				sync_dirs $dstpath . $srcpath
 			fi
 
+			# Write the fstab entry
 			if [ "$5" = "none" ]; then
-				mount_opts="bind"
+				echo "$path $1 none bind 0 0" >>$FSTAB
 			else
-				mount_opts="bind,$5"
+				echo "$path $1 none bind,$5 0 0" >>$FSTAB
 			fi
-
-			# mount all /etc dirs right now, not later when fstab is
-			# processed, as it will cause races (e.g. /etc/machine-id).
-			case "$1" in
-				/etc/*)
-					mount -o "$mount_opts" "$srcpath" "$dstpath"
-					;;
-				*)
-					echo "$path $1 none $mount_opts 0 0" >>$FSTAB
-					;;
-			esac
 		else
 			continue
 		fi

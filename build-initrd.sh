@@ -38,12 +38,12 @@ done
 # Defaults for all arguments, so they can be set by the environment
 [ -z $ARCH ] && ARCH="armhf"
 [ -z $MIRROR ] && MIRROR=$DEFAULTMIRROR
-[ -z $RELEASE ] && RELEASE="stretch"
+[ -z $RELEASE ] && RELEASE="buster"
 [ -z $ROOT ] && ROOT=./build/$ARCH
 [ -z $OUT ] && OUT=./out
 
 # list all packages needed for halium's initrd here
-[ -z $INCHROOTPKGS ] && INCHROOTPKGS="initramfs-tools dctrl-tools e2fsprogs libc6-dev zlib1g-dev libssl-dev busybox-static"
+[ -z $INCHROOTPKGS ] && INCHROOTPKGS="initramfs-tools dctrl-tools dmsetup e2fsprogs libc6-dev zlib1g-dev libssl-dev busybox-static"
 
 BOOTSTRAP_BIN="qemu-debootstrap --arch $ARCH --variant=minbase"
 
