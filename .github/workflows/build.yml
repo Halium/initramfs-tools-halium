@@ -1,0 +1,28 @@
+name: halium-initramfs
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-18.04
+    strategy:
+      matrix:
+        arch: [armhf, arm64, amd64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+
+      - name: Initialize environment
+        run: |
+          echo "deb http://de.archive.ubuntu.com/ubuntu bionic main universe" |sudo tee -a /etc/apt/sources.list
+          sudo apt-get update
+          sudo apt-get install qemu-user-static debootstrap -y
+
+      - name: Build initramfs
+        run: sudo ARCH=${{ matrix.arch }} ./build-initrd.sh
+
+      - name : Upload artifacts
+        uses: actions/upload-artifact@master
+        with:
+          name: halium-initramfs-${{ matrix.arch }}
+          path: out/
