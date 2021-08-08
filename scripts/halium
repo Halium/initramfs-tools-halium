@@ -534,6 +534,12 @@ mountroot() {
 	identify_android_image
 	[ $ANDROID_IMAGE_MODE = "unknown" ] && tell_kmsg "WARNING: Android system image not found."
 
+	if [ -z "${_syspart_options##*ro*}" ] || [ -e /tmpmnt/.writable_image_overlay ] || [ -e /halium-system/.writable_image_overlay ]; then
+		# If systempart had to be mounted ro, mount rw overlayfs on top
+		mkdir -p /tmpmnt/rootfs-overlay /tmpmnt/rootfs-overlay-workdir
+		mount -t overlay rootfs -o lowerdir=/halium-system,upperdir=/tmpmnt/rootfs-overlay,workdir=/tmpmnt/rootfs-overlay-workdir /halium-system
+	fi
+
 	# If either (android) /data/.writable_image or (on rootfs)
 	# /.writable_image exist, mount the rootfs as rw
 	if [ -e /tmpmnt/.writable_image ] || [ -e /halium-system/.writable_image ]; then
