@@ -488,9 +488,17 @@ mountroot() {
 			case ${x} in
 			systempart=*)
 				_syspart=${x#*=}
+				if [ -z ${_syspart##*:*} ]; then
+					_syspart_options=${_syspart##*:}
+					_syspart=${_syspart%%:*}
+				fi
 				;;
 			esac
 		done
+
+		if [ -z "$_syspart_options" ]; then
+			_syspart_options=rw
+		fi
 	fi
 
 	identify_file_layout
@@ -510,7 +518,7 @@ mountroot() {
 
 	tell_kmsg "mounting system rootfs at /halium-system"
 	if [ -n "$_syspart" ]; then
-		mount -o rw $_syspart /halium-system
+		mount -o "$_syspart_options" $_syspart /halium-system
 	elif [ -f "$imagefile" ]; then
 		# Rootfs is an image file
 		mount -o loop,rw $imagefile /halium-system
