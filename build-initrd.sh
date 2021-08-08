@@ -5,6 +5,8 @@ set -e
 export FLASH_KERNEL_SKIP=1
 export DEBIAN_FRONTEND=noninteractive
 DEFAULTMIRROR="https://deb.debian.org/debian"
+DEFAULTUBPORTSMIRROR="http://repo.ubports.com/"
+UBPORTSKEYRING="https://repo.ubports.com/keyring.gpg"
 APT_COMMAND="apt -y"
 
 usage() {
@@ -38,12 +40,14 @@ done
 # Defaults for all arguments, so they can be set by the environment
 [ -z $ARCH ] && ARCH="armhf"
 [ -z $MIRROR ] && MIRROR=$DEFAULTMIRROR
+[ -z $UBPORTSMIRROR ] && UBPORTSMIRROR=$DEFAULTUBPORTSMIRROR
 [ -z $RELEASE ] && RELEASE="buster"
+[ -z $UBPORTSRELEASE ] && UBPORTSRELEASE="xenial"
 [ -z $ROOT ] && ROOT=./build/$ARCH
 [ -z $OUT ] && OUT=./out
 
 # list all packages needed for halium's initrd here
-[ -z $INCHROOTPKGS ] && INCHROOTPKGS="initramfs-tools dctrl-tools dmsetup e2fsprogs libc6-dev zlib1g-dev libssl-dev busybox-static"
+[ -z $INCHROOTPKGS ] && INCHROOTPKGS="initramfs-tools dctrl-tools dmsetup e2fsprogs libc6-dev zlib1g-dev libssl-dev busybox-static parse-android-dynparts"
 
 BOOTSTRAP_BIN="qemu-debootstrap --arch $ARCH --variant=minbase"
 
@@ -76,6 +80,11 @@ if [ ! -e $ROOT/.min-done ]; then
 
 	#sed -i 's/main$/main universe/' $ROOT/etc/apt/sources.list
 	sed -i 's,'"$DEFAULTMIRROR"','"$MIRROR"',' $ROOT/etc/apt/sources.list
+	mkdir -p $ROOT/etc/apt/sources.list.d
+	echo "deb $UBPORTSMIRROR $UBPORTSRELEASE main" > $ROOT/etc/apt/sources.list.d/ubports.list
+
+	mkdir -p $ROOT/etc/apt/trusted.gpg.d
+	wget "$UBPORTSKEYRING" -O $ROOT/etc/apt/trusted.gpg.d/ubports.gpg
 
 	# make sure we do not start daemons at install time
 	mv $ROOT/sbin/start-stop-daemon $ROOT/sbin/start-stop-daemon.REAL
