@@ -476,6 +476,12 @@ mountroot() {
 	[ `blkid $path -o value -s TYPE` = "ext4" ] && OPTIONS="data=journal,"
 	mount -o discard,$OPTIONS $path /tmpmnt
 
+	# setup super partition if exists
+	if [ -n "/dev/disk/by-partlabel/super" ]; then
+		tell_kmsg "trying to parse and dmsetup subpartitions from super partition"
+		/sbin/parse-android-dynparts /dev/disk/by-partlabel/super | sh
+	fi
+
 	# Set $_syspart if it is specified as systempart= on the command line
 	if grep -q systempart= /proc/cmdline; then
 		for x in $(cat /proc/cmdline); do
