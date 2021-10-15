@@ -511,6 +511,13 @@ mountroot() {
 		fi
 	fi
 
+	# We need to add the slot suffix to $_syspart for A/B devices
+	if [ -n "$_syspart" ] && [ ! -e "$_syspart" ] && [ ! -z "$ab_slot_suffix" ]; then
+		tell_kmsg "A/B slot system detected! Slot suffix is $ab_slot_suffix"
+		_syspart="${_syspart}${ab_slot_suffix}"
+		tell_kmsg "system partition is at $_syspart"
+	fi
+
 	identify_file_layout
 
 	# If both $imagefile and $_syspart are set, something is wrong. The strange
