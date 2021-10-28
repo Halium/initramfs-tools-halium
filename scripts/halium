@@ -23,198 +23,6 @@ halium_panic() {
 	panic $REASON
 }
 
-identify_boot_mode() {
-	# Our current list of supported boot modes:
-	## BOOT_MODE = halium and android
-	BOOT_MODE='halium'
-
-	# The boot reason is exported via /proc/cmdline
-	# The standard method is using androidboot.mode parameter.
-
-	for x in $(cat /proc/cmdline); do
-		case ${x} in
-		androidboot.mode=*)
-			android_bootmode=${x#*=}
-			;;
-		esac
-	done
-
-	if echo "$android_bootmode" | grep charger; then
-		BOOT_MODE="android"
-	fi
-
-	## Some devices may be using 'bootreason', others 'boot_reason'
-	## XXX: Find a better way to handle device specifics here
-
-	# Krillin
-	if [ -f /sys/class/BOOT/BOOT/boot/boot_mode ]; then
-		boot_reason=$(cat /sys/class/BOOT/BOOT/boot/boot_mode)
-		case "${boot_reason}" in
-		1) BOOT_MODE="android" ;; # Meta
-		4) BOOT_MODE="android" ;; # Factory
-		8) BOOT_MODE="android" ;; # Power off charging
-		9) BOOT_MODE="android" ;; # Low power charging
-		esac
-	fi
-
-	# On Android 8+ devices the 'android' boot mode is broken and should be avoided.
-	# This behavior can be overridden with the cmdline flag 'halium_no_avoid_android_mode'
-	# List of API levels and referred Android versions: https://source.android.com/setup/start/build-numbers
-	if ! grep -wq halium_no_avoid_android_mode /proc/cmdline; then
-		api_level=$(sed -n 's/^ro.build.version.sdk=//p' /android-system/build.prop) # e.g. 26 for Android 8.0
-		[ -z "$api_level" ] && api_level=0
-		tell_kmsg "Android system image API level is $api_level"
-		if [ "$BOOT_MODE" = "android" ] && [ $api_level -ge 26 ]; then
-			tell_kmsg "Android 8+ device detected! Charging is to be handled by rootfs, continue boot normally"
-			BOOT_MODE='halium'
-		fi
-	fi
-
-	tell_kmsg "boot mode: $BOOT_MODE"
-}
-
-identify_android_image() {
-	# Checks for the provided Android image. If it's called system.img, it
-	# should be mounted at Android's /system. If it's called android-rootfs.img,
-	# it should be mounted at Android's /.
-	# Sets $ANDROID_IMAGE_MODE to:
-	#   * "rootfs" if the image should be mounted at '/android/'
-	#   * "system" if the image should be mounted at '/android/system/'
-	#   * "unknown" if neither is found
-
-	[ -f /tmpmnt/system.img ] && ANDROID_IMAGE_MODE="system"
-	[ -f /tmpmnt/android-rootfs.img ] && ANDROID_IMAGE_MODE="rootfs"
-	[ -f /halium-system/var/lib/lxc/android/system.img ] && ANDROID_IMAGE_MODE="system"
-	[ -f /halium-system/var/lib/lxc/android/android-rootfs.img ] && ANDROID_IMAGE_MODE="rootfs"
-	[ -z $ANDROID_IMAGE_MODE ] && ANDROID_IMAGE_MODE="unknown"
-}
-
-set_halium_version_properties() {
-	halium_system=$1
-	android_data=$2
-
-	channel_ini=$1/etc/system-image/channel.ini
-	def_language=$1/custom/default_language
-
-	halium="unknown"
-	device="unknown"
-	custom="unknown"
-	version="unknown"
-	channel="unknown"
-	def_lang="unknown"
-
-	if [ -f "$channel_ini" ]; then
-		IFS=','
-		for i in $(grep version_detail $channel_ini | awk -F ' ' '{print $2}'); do
-			id=${i%=*}
-			case $id in
-			halium) halium=${i#halium=} ;;
-			device) device=${i#device=} ;;
-			custom) custom=${i#custom=} ;;
-			version) version=${i#version=} ;;
-			esac
-		done
-		unset IFS
-		channel=$(grep channel $channel_ini | awk -F ' ' '{print $2}')
-	fi
-
-	if [ -f "$def_language" ]; then
-		lang=$(cat $def_language)
-		if [ -n "$lang" ]; then
-			def_lang=$lang
-		fi
-	fi
-
-	# Write down so the android property system can load them automatically
-	mkdir -p $android_data/property
-	chmod 700 $android_data/property
-	echo -n "$halium" >$android_data/property/persist.halium.version.rootfs
-	echo -n "$device" >$android_data/property/persist.halium.version.device
-	echo -n "$custom" >$android_data/property/persist.halium.version.custom
-	echo -n "$channel" >$android_data/property/persist.halium.version.channel
-	echo -n "$version" >$android_data/property/persist.halium.version
-	echo -n "$def_lang" >$android_data/property/persist.halium.default_language
-	chmod 600 $android_data/property/persist.halium*
-}
-
-mount_android_partitions() {
-	fstab=$1
-	mount_root=$2
-	real_userdata=$3
-
-	tell_kmsg "checking fstab $fstab for additional mount points"
-
-	# On systems with A/B partition layout, current slot is provided via cmdline parameter.
-	ab_slot_suffix=$(grep -o 'androidboot\.slot_suffix=..' /proc/cmdline |  cut -d "=" -f2)
-	[ ! -z "$ab_slot_suffix" ] && tell_kmsg "A/B slot system detected! Slot suffix is $ab_slot_suffix"
-
-	cat ${fstab} | while read line; do
-		set -- $line
-
-		# stop processing if we hit the "#endhalium" comment in the file
-		echo $1 | egrep -q "^#endhalium" && break
-
-		# Skip any unwanted entry
-		echo $1 | egrep -q "^#" && continue
-		([ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]) && continue
-		([ "$2" = "/system" ] || [ "$2" = "/data" ] || [ "$2" = "/" ]) && continue
-
-		label=$(echo $1 | awk -F/ '{print $NF}')
-		[ -z "$label" ] && continue
-
-		tell_kmsg "checking mount label $label"
-
-		# In case fstab provides /dev/mmcblk0p* lines
-		path="/dev/$label"
-		for dir in by-partlabel by-name by-label by-path by-uuid by-partuuid by-id; do
-			# On A/B systems not all of the partitions are duplicated, so we have to check with and without suffix
-			if [ -e "/dev/disk/$dir/$label$ab_slot_suffix" ]; then
-				path="/dev/disk/$dir/$label$ab_slot_suffix"
-				break
-			elif [ -e "/dev/disk/$dir/$label" ]; then
-				path="/dev/disk/$dir/$label"
-				break
-			fi
-		done
-
-		[ ! -e "$path" ] && continue
-
-		mkdir -p ${mount_root}/$2
-		tell_kmsg "mounting $path as ${mount_root}/$2"
-		mount $path ${mount_root}/$2 -t $3 -o $4
-	done
-
-	# Provide a bind mount from /cache to /userdata/cache on systems without a dedicated cache partition
-	if [ ! -e ${mount_root}/cache ]; then
-		if [ ! -d ${real_userdata}/cache ]; then
-			mkdir ${real_userdata}/cache
-		fi
-		mkdir ${mount_root}/cache
-		mount -o bind ${real_userdata}/cache ${mount_root}/cache
-	fi
-
-	# Create an appropriate symlink for vendor files
-	if [ ! -e ${mount_root}/vendor ]; then
-		ln -sf system/vendor ${mount_root}/vendor
-	fi
-}
-
-mount_halium_overlay() {
-	source=$1
-	target=$2
-
-	if [ -d ${source} ]; then
-		OLD_PWD=$PWD
-		cd ${source}
-
-		for overlay in $(find . -type f); do
-			[ -f ${target}/${overlay} ] && mount --bind ${source}/${overlay} ${target}/${overlay}
-		done
-
-		cd $OLD_PWD
-	fi
-}
-
 sync_dirs() {
 	base=$1
 	source=$2
@@ -391,24 +199,6 @@ process_bind_mounts() {
 	done
 }
 
-extract_android_ramdisk() {
-	# Extracts the ramdisk from /android-system/boot/android-ramdisk.img to
-	# /android-rootfs
-
-	# NOTE: we should find a faster way of doing that or cache it
-	tell_kmsg "extracting android ramdisk"
-	OLD_CWD=$(pwd)
-	mount -n -t tmpfs tmpfs /android-rootfs
-	cd /android-rootfs
-	cat /android-system/boot/android-ramdisk.img | gzip -d | cpio -i
-	cd $OLD_CWD
-}
-
-mount_kernel_modules() {
-	# Bind-mount /lib/modules from Android
-	[ -e ${rootmnt}/android/system/lib/modules ] && mount --bind ${rootmnt}/android/system/lib/modules ${rootmnt}/lib/modules
-}
-
 mountroot() {
 	# list of possible userdata partition names
 	partlist="userdata UDA DATAFS USERDATA"
@@ -437,19 +227,6 @@ mountroot() {
 		path=$(readlink -f $part)
 		[ -n "$path" ] && break
 	done
-
-	# On systems with A/B partition layout, current slot is provided via cmdline parameter.
-	ab_slot_suffix=$(grep -o 'androidboot\.slot_suffix=..' /proc/cmdline |  cut -d "=" -f2)
-	if [ -z "$path" ] && [ ! -z "$ab_slot_suffix" ] ; then
-		tell_kmsg "Searching for A/B data partition on slot $ab_slot_suffix."
-
-		for partname in $partlist; do
-			part=$(find /dev -name "$partname$ab_slot_suffix" | tail -1)
-			[ -z "$part" ] && continue
-			path=$(readlink -f $part)
-			[ -n "$path" ] && break
-		done
-	fi
 
 	# override with a possible cmdline parameter
 	if grep -q datapart= /proc/cmdline; then
@@ -522,13 +299,6 @@ mountroot() {
 		# Rootfs is a directory
 		mount -o bind /tmpmnt/halium-rootfs /halium-system
 	fi
-	
-	# Identify image mode: either "rootfs" or "system"
-	mkdir -p /android-rootfs
-	mkdir -p /android-system
-
-	identify_android_image
-	[ $ANDROID_IMAGE_MODE = "unknown" ] && tell_kmsg "WARNING: Android system image not found."
 
 	# If either (android) /data/.writable_image or (on rootfs)
 	# /.writable_image exist, mount the rootfs as rw
@@ -542,58 +312,8 @@ mountroot() {
 		mountroot_status="$?"
 	fi
 
-	# Mount the android system partition to a temporary location
-	MOUNT="ro"
-	MOUNT_LOCATION="/android-$ANDROID_IMAGE_MODE"
-	[ $ANDROID_IMAGE_MODE = "system" ] && ANDROID_IMAGE="system.img" || ANDROID_IMAGE="android-rootfs.img"
-	[ -e /tmpmnt/.writable_device_image -o -e /halium-system/.writable_device_image ] && MOUNT="rw"
-	tell_kmsg "mounting android system image (/tmpmnt/$ANDROID_IMAGE) $MOUNT, in $MOUNT_LOCATION ($ANDROID_IMAGE_MODE mode)"
-	if [ $file_layout = "halium" ]; then
-		# rootfs.img and Android system.img are separate
-		tell_kmsg "mounting android system image from userdata partition"
-		mount -o loop,$MOUNT "/tmpmnt/$ANDROID_IMAGE" $MOUNT_LOCATION
-	else
-		# Android system.img is inside rootfs
-		tell_kmsg "mounting android system image from system rootfs"
-		mount -o loop,$MOUNT "/halium-system/var/lib/lxc/android/$ANDROID_IMAGE" $MOUNT_LOCATION
-	fi
-
-	[ $? -eq 0 ] || tell_kmsg "WARNING: Failed to mount Android system.img."
-
-	[ $ANDROID_IMAGE_MODE = "rootfs" ] && mount -o bind $MOUNT_LOCATION/system /android-system
-	[ $ANDROID_IMAGE_MODE = "system" ] && extract_android_ramdisk
-
-	identify_boot_mode
-
-	# Determine whether we should boot to rootfs or Android
-	if ([ -e $imagefile ] || [ -n "$_syspart" ]) && [ "$BOOT_MODE" = "android" ]; then
-		# Bootloader says this is factory or charger mode, boot into Android.
-		tell_kmsg "Android boot mode for factory or charger mode"
-
-		mount --move /android-rootfs ${rootmnt}
-		[ $ANDROID_IMAGE_MODE = "system" ] && mount --move /android-system ${rootmnt}/system
-
-		# Mount all the Android partitions
-		mount_android_partitions "${rootmnt}/fstab*" ${rootmnt} /tmpmnt
-
-		mkdir -p ${rootmnt}/halium-system
-		mount --move /halium-system ${rootmnt}/halium-system
-
-		# Mounting userdata
-		mkdir -p ${rootmnt}/data
-		mkdir -p /tmpmnt/android-data
-		mount -o bind /tmpmnt/android-data ${rootmnt}/data
-
-		# Set halium version properties
-		set_halium_version_properties ${rootmnt}/halium-system ${rootmnt}/data
-
-		# Make sure we're booting into android's init
-		ln -s ../init ${rootmnt}/sbin/init
-		ln -s ../init ${rootmnt}/sbin/recovery
-		tell_kmsg "booting android..."
-	elif [ -e $imagefile ] || [ -n "$_syspart" ]; then
-		# Regular image boot
-		tell_kmsg "Normal boot"
+	if [ -e $imagefile ] || [ -n "$_syspart" ]; then
+		tell_kmsg "Found rootfs"
 
 		mount --move /halium-system ${rootmnt}
 		mkdir -p ${rootmnt}/android
@@ -602,47 +322,7 @@ mountroot() {
 		mkdir -p ${rootmnt}/userdata
 		mount --move /tmpmnt ${rootmnt}/userdata
 
-		mount --move /android-rootfs ${rootmnt}/var/lib/lxc/android/rootfs
-		[ $ANDROID_IMAGE_MODE = "system" ] && mount -o rw,size=4096 -t tmpfs none ${rootmnt}/android
-		[ $ANDROID_IMAGE_MODE = "rootfs" ] && mount -o bind ${rootmnt}/var/lib/lxc/android/rootfs ${rootmnt}/android
-
-		mkdir -p ${rootmnt}/android/data ${rootmnt}/android/system
-
-		# Create a fake android data, shared by rootfs and LXC container
-		mkdir -p ${rootmnt}/userdata/android-data
-		mount -o bind ${rootmnt}/userdata/android-data ${rootmnt}/android/data
-		[ ! -h ${rootmnt}/data ] && ln -sf /android/data ${rootmnt}/data
-
-		set_halium_version_properties ${rootmnt} ${rootmnt}/userdata/android-data
-
-		# Get device information
-		device=$(grep ^ro.product.device= /android-system/build.prop | sed -e 's/.*=//')
-		[ -z "$device" ] && device="unknown" && tell_kmsg "WARNING: Didn't find a device name. Is the Android system image mounted correctly?"
-		tell_kmsg "device is $device"
-
 		process_bind_mounts
-
-		# Mount all the Android partitions
-		mount_android_partitions "${rootmnt}/var/lib/lxc/android/rootfs/fstab*" ${rootmnt}/android ${rootmnt}/userdata
-
-		# system is a special case
-		tell_kmsg "moving Android system to /android/system"
-		mount --move /android-system ${rootmnt}/android/system
-
-		# halium overlay available in the Android system image (hardware specific configs)
-		if [ -e ${rootmnt}/android/system/halium ]; then
-			mount_halium_overlay ${rootmnt}/android/system/halium ${rootmnt}
-		fi
-
-		# Apply device-specific udev rules
-		if [ -e ${rootmnt}/usr/lib/lxc-android-config/70-$device.rules ] &&
-			[ ! -f ${rootmnt}/android/system/halium/lib/udev/rules.d/70-android.rules ] &&
-			[ "$device" != "unknown" ]; then
-			mount --bind ${rootmnt}/usr/lib/lxc-android-config/70-$device.rules ${rootmnt}/lib/udev/rules.d/70-android.rules
-		fi
-
-		# Bind-mount /lib/modules from Android
-		mount_kernel_modules
 
 		# Bind-mount /var/lib/ureadahead if available on persistent storage
 		# this is required because ureadahead runs before mountall
@@ -650,9 +330,6 @@ mountroot() {
 			[ -e ${rootmnt}/var/lib/ureadahead ]; then
 			mount --bind ${rootmnt}/userdata/system-data/var/lib/ureadahead ${rootmnt}/var/lib/ureadahead
 		fi
-
-		# Setup the swap device
-		[ -e ${rootmnt}/userdata/SWAP.img ] && swapon ${rootmnt}/userdata/SWAP.img
 
 		# Apply customized content
 		for user in ${rootmnt}/userdata/user-data/*; do
