@@ -225,7 +225,7 @@ sync_dirs() {
 
 	for file in $source/*; do
 		# Skip empty directories
-		[ ! -e "$base/$file" ] && continue
+		[ ! -e "$base/$file" -a ! -L "$base/$file" ] && continue
 
 		# If the target already exists as a file or link, there's nothing we can do
 		[ -e "$target/$file" -o -L "$target/$file" ] && [ ! -d "$target/$file" ] && continue
