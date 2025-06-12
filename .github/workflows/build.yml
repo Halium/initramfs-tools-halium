@@ -33,14 +33,14 @@ jobs:
 
     steps:
       - name: Download all built artifacts
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v4
 
       # Here we're abusing the "continuous" tag/release to store the latest
       # built image. This is not very good practice, but GitHub won't allow
       # unauthenticated user to download artifacts. Hence, this abuse.
 
       - name: Release to the continuous tag.
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: halium-initramfs-*/*
           fail_on_unmatched_files: true
