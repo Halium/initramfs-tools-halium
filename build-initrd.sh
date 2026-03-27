@@ -4,7 +4,7 @@ set -e
 
 export FLASH_KERNEL_SKIP=1
 export DEBIAN_FRONTEND=noninteractive
-DEFAULTMIRROR="https://archive.debian.org/debian"
+DEFAULTMIRROR="https://ftp.debian.org/debian"
 DEFAULTUBPORTSMIRROR="http://repo.ubports.com/"
 UBPORTSKEYRING="https://repo.ubports.com/keyring.gpg"
 APT_COMMAND="apt -y"
@@ -41,8 +41,8 @@ done
 [ -z $ARCH ] && ARCH="armhf"
 [ -z $MIRROR ] && MIRROR=$DEFAULTMIRROR
 [ -z $UBPORTSMIRROR ] && UBPORTSMIRROR=$DEFAULTUBPORTSMIRROR
-[ -z $RELEASE ] && RELEASE="stretch"
-[ -z $UBPORTSRELEASE ] && UBPORTSRELEASE="xenial"
+[ -z $RELEASE ] && RELEASE="trixie"
+[ -z $UBPORTSRELEASE ] && UBPORTSRELEASE="24.04-1.x"
 [ -z $ROOT ] && ROOT=./build/$ARCH
 [ -z $OUT ] && OUT=./out
 
@@ -109,6 +109,11 @@ fi
 do_chroot $ROOT "$APT_COMMAND update"
 do_chroot $ROOT "$APT_COMMAND dist-upgrade"
 do_chroot $ROOT "$APT_COMMAND install $INCHROOTPKGS --no-install-recommends"
+
+# Disable interface renaming
+do_chroot $ROOT "ln -sf /dev/null /etc/systemd/network/99-default.link"
+do_chroot $ROOT "ln -sf /dev/null /etc/systemd/network/73-usb-net-by-mac.link"
+
 DEB_HOST_MULTIARCH=$(chroot $ROOT dpkg-architecture -q DEB_HOST_MULTIARCH)
 
 cp -a conf/halium ${ROOT}/usr/share/initramfs-tools/conf.d
