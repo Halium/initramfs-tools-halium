@@ -4,7 +4,7 @@ set -e
 
 export FLASH_KERNEL_SKIP=1
 export DEBIAN_FRONTEND=noninteractive
-DEFAULTMIRROR="https://deb.debian.org/debian"
+DEFAULTMIRROR="https://ftp.debian.org/debian"
 APT_COMMAND="apt -y"
 
 usage() {
@@ -38,7 +38,7 @@ done
 # Defaults for all arguments, so they can be set by the environment
 [ -z $ARCH ] && ARCH="armhf"
 [ -z $MIRROR ] && MIRROR=$DEFAULTMIRROR
-[ -z $RELEASE ] && RELEASE="stretch"
+[ -z $RELEASE ] && RELEASE="trixie"
 [ -z $ROOT ] && ROOT=./build/$ARCH
 [ -z $OUT ] && OUT=./out
 
@@ -100,6 +100,11 @@ fi
 do_chroot $ROOT "$APT_COMMAND update"
 do_chroot $ROOT "$APT_COMMAND dist-upgrade"
 do_chroot $ROOT "$APT_COMMAND install $INCHROOTPKGS --no-install-recommends"
+
+# Disable interface renaming
+do_chroot $ROOT "ln -sf /dev/null /etc/systemd/network/99-default.link"
+do_chroot $ROOT "ln -sf /dev/null /etc/systemd/network/73-usb-net-by-mac.link"
+
 DEB_HOST_MULTIARCH=$(chroot $ROOT dpkg-architecture -q DEB_HOST_MULTIARCH)
 
 cp -a conf/halium ${ROOT}/usr/share/initramfs-tools/conf.d

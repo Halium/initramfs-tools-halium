@@ -26,4 +26,4 @@ copy_exec /bin/mount /bin
 copy_exec /sbin/dumpe2fs /sbin
 copy_exec /lib/$DEB_HOST_MULTIARCH/libz.so.1
 copy_exec /usr/lib/$DEB_HOST_MULTIARCH/libcrypto.so
-copy_exec /usr/lib/$DEB_HOST_MULTIARCH/libdl.so
+copy_exec /usr/lib/$DEB_HOST_MULTIARCH/libdl.so.2

@@ -112,12 +112,12 @@ inject_loop() {
 usb_setup "halium-initrd telnet 192.168.2.15"
 
 USB_IFACE=notfound
-/sbin/ifconfig rndis0 $LOCAL_IP && USB_IFACE=rndis0
+$EXPLICIT_BUSYBOX ifconfig rndis0 $LOCAL_IP && USB_IFACE=rndis0
 if [ x$USB_IFACE = xnotfound ]; then
-	/sbin/ifconfig usb0 $LOCAL_IP && USB_IFACE=usb0
+	$EXPLICIT_BUSYBOX ifconfig usb0 $LOCAL_IP && USB_IFACE=usb0
 fi
 # Report for the logs
-/sbin/ifconfig -a
+$EXPLICIT_BUSYBOX ifconfig -a
 
 # Unable to set up USB interface? Reboot.
 if [ x$USB_IFACE = xnotfound ]; then
