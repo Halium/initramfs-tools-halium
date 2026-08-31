@@ -35,9 +35,23 @@ jobs:
   upload:
     needs: build
     runs-on: ubuntu-24.04
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/dynparts'
+    permissions:
+      contents: write
 
     steps:
+      - name: Checkout
+        if: github.ref == 'refs/heads/dynparts'
+        uses: actions/checkout@v4
+
+      # Keep a "dynparts" tag pinned to the branch head so the release below
+      # always points at the commit we just built.
+      - name: Move the dynparts tag
+        if: github.ref == 'refs/heads/dynparts'
+        run: |
+          git tag -f dynparts
+          git push -f origin refs/tags/dynparts
+
       - name: Download all built artifacts
         uses: actions/download-artifact@v4
 
@@ -48,5 +62,6 @@ jobs:
       - name: Release to the continuous tag.
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_name }}
           files: halium-initramfs-*/*
           fail_on_unmatched_files: true
