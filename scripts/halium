@@ -320,6 +320,23 @@ identify_file_layout() {
 
 }
 
+propagate_android_bootconfig() {
+	# Kernels without /proc/bootconfig pass androidboot.* on the command
+	# line; mirror them so bootconfig consumers can fall back to /run.
+
+	[ -e /proc/bootconfig ] && return 0
+
+	for x in $(cat /proc/cmdline); do
+		case ${x} in
+		androidboot.*=*)
+			echo "${x%%=*} = \"${x#*=}\""
+			;;
+		esac
+	done >${rootmnt}/run/bootconfig
+
+	tell_kmsg "no /proc/bootconfig, mirrored androidboot.* to /run/bootconfig"
+}
+
 process_bind_mounts() {
 	# Goes over /etc/system-image/writable-paths to create the correct fstab for
 	# the bind-mounts. Writes them into ${rootmnt}/run/image.fstab which is
@@ -768,6 +785,7 @@ mountroot() {
 		tell_kmsg "device is $device"
 
 		process_bind_mounts
+		propagate_android_bootconfig
 
 		# Mount all the Android partitions
 		mount_android_partitions "${rootmnt}/var/lib/lxc/android/rootfs/fstab*" ${rootmnt}/android ${rootmnt}/userdata
