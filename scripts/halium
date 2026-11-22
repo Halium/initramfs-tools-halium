@@ -567,10 +567,18 @@ mountroot() {
 
 	tell_kmsg "mounting $path"
 
+	# Mount options for userdata can be set with datapart_opts= on the command line
+	data_opts=defaults
+	for x in $(cat /proc/cmdline); do
+		case ${x} in
+		datapart_opts=*)
+			data_opts=${x#*=}
+			;;
+		esac
+	done
+
 	# Mount the data partition to a temporary mount point
-	# FIXME: data=journal used on ext4 as a workaround for bug 1387214
-	[ `blkid $path -o value -s TYPE` = "ext4" ] && OPTIONS="data=journal,"
-	mount -o discard,$OPTIONS $path /tmpmnt
+	mount -o $data_opts $path /tmpmnt
 
 	# setup super partition if exists
 	if [ -b /dev/disk/by-partlabel/super ]; then
